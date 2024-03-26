@@ -1,10 +1,24 @@
+import random
 import time
-
-from controller import Robot
-from droneblocks.crazyflie.pid_controller import PIDController
+from dataclasses import dataclass
+from enum import Enum
 from math import cos, sin
 from typing import Any
+
 from controller import Keyboard
+from controller import Robot
+
+from droneblocks.crazyflie.pid_controller import PIDController
+
+
+@dataclass(frozen=False)
+class PreFlyReturnData:
+    short_circuit: bool = False  # True - then return from Fly function without executing rest
+    # False - update the Fly function params with the values in this dataclass and continue
+    forward_desired: float = 0.0
+    sideways_desired: float = 0.0
+    yaw_desired: int = 0
+    height_diff_desired: float = 0.0
 
 
 class DroneBlocksWebotCrazyflieRobot(Robot):
@@ -110,7 +124,7 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
     def pre_fly(self, forward_desired: float = 0.0,
                 sideways_desired: float = 0.0,
                 yaw_desired: int = 0,
-                height_diff_desired: float = 0) -> bool:
+                height_diff_desired: float = 0.0) -> PreFlyReturnData:
         """
         Method is meant to be overridden by subclasses to process flying BEFORE the standard implementation.
         If this method is not overridden, it will be called and always return True.
@@ -123,12 +137,17 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
         :param height_diff_desired:
         :return:
         """
-        return True
+        return PreFlyReturnData(
+            forward_desired=forward_desired,
+            sideways_desired=sideways_desired,
+            yaw_desired=yaw_desired,
+            height_diff_desired=height_diff_desired
+        )
 
     def post_fly(self, forward_desired: float = 0.0,
-                sideways_desired: float = 0.0,
-                yaw_desired: int = 0,
-                height_diff_desired: float = 0) -> None:
+                 sideways_desired: float = 0.0,
+                 yaw_desired: int = 0,
+                 height_diff_desired: float = 0) -> None:
         """
         Method is meant to be overridden by subclasses to process flying AFTER the standard implementation.
         If this method is not overridden, it will be called and do nothing.
@@ -142,15 +161,25 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
         :return: None
         """
         return
+
     def fly(self, forward_desired: float = 0.0,
-                sideways_desired: float = 0.0,
-                yaw_desired: int = 0,
-                height_diff_desired: float = 0):
+            sideways_desired: float = 0.0,
+            yaw_desired: int = 0,
+            height_diff_desired: float = 0):
 
         try:
             # allow for any pre-fly behavior before the standard implementation
-            if not self.pre_fly(forward_desired, sideways_desired, yaw_desired, height_diff_desired):
+            pre_fly_data = self.pre_fly(forward_desired, sideways_desired, yaw_desired, height_diff_desired)
+            if pre_fly_data.short_circuit:
+                # then the pre_fly implementation has indicated we should not continue with the normal
+                # fly operation
                 return
+            else:
+                # we should continue but use any updated values from the pre_fly hook
+                forward_desired = pre_fly_data.forward_desired
+                sideways_desired = pre_fly_data.sideways_desired
+                yaw_desired = pre_fly_data.yaw_desired
+                height_diff_desired = pre_fly_data.height_diff_desired
 
             # if this crazyflie is marked as the queen, let the
             # workers know how to set their motors
@@ -196,15 +225,13 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
                 v_x = v_x_global * cos_yaw + v_y_global * sin_yaw
                 v_y = - v_x_global * sin_yaw + v_y_global * cos_yaw
 
-
                 motor_power = self.pid_controller.pid(delta_time,
                                                       forward_desired,
                                                       sideways_desired,
-                                                    yaw_desired,
-                                                    self.height_desired,
-                                                  roll, pitch, yaw_rate,
-                                                  altitude, v_x, v_y)
-
+                                                      yaw_desired,
+                                                      self.height_desired,
+                                                      roll, pitch, yaw_rate,
+                                                      altitude, v_x, v_y)
 
                 self.m1_motor.setVelocity(-motor_power[0])
                 self.m2_motor.setVelocity(motor_power[1])
@@ -266,6 +293,10 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
             self.fly(forward_desired, sideways_desired, yaw_desired, height_diff_desired)
         else:
             # we are in autonmous mode so just look for the Autonmous key
+            # use the default fly parameters, and let the object avoidance figure it out
+            # If the actual Robot does not handle Autonmous mode then it will just sit there
+            self.fly()
+
             if key > 0:
                 if key == ord('A'):
                     if self.autonomous_mode is False:
@@ -295,3 +326,85 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
 
     def emitter_send(self, msg: str):
         self.emitter.send(msg)
+
+    def print_instructions_to_console(self):
+        if self.crazyflie.is_queen_bee:
+            print("====== Controls =======\n\n")
+
+            print(" The Crazyflie can be controlled from your keyboard!\n")
+            print(" All controllable movement is in body coordinates\n")
+            print("- Use the up, back, right and left button to move in the horizontal plane\n")
+            print("- Use Q and E to rotate around yaw\n ")
+            print("- Use W and S to go up and down\n ")
+            print("- Use W and S to go up and down\n ")
+        elif self.crazyflie.is_worker_bee:
+            print("====== Worker Drone =======\n\n")
+
+
+class DroneBlocksWebotCrazyflieObstacleAvoidanceRobot(DroneBlocksWebotCrazyflieRobot):
+    class FlyingState(Enum):
+        FORWARD = 0
+        TURN = 1
+
+    def __init__(self, lower_distance_threshold: float = 0.8, upper_distance_threshold: float = 1.8, forward_speed: float = 0.5):
+        super().__init__()
+        self.fly_state = DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.FORWARD
+        self.yaw_velocity = 1
+        self.lower_distance_threshold =lower_distance_threshold
+        self.upper_distance_threshold = upper_distance_threshold
+        self.forward_speed = forward_speed
+
+    def pre_fly(self, forward_desired: float = 0.0,
+                sideways_desired: float = 0.0,
+                yaw_desired: int = 0,
+                height_diff_desired: float = 0) -> PreFlyReturnData:
+
+        if self.is_autonomous_flight():
+            range_sensor_values = self.get_range_sensor_values()
+
+            # set the proper velocities and yaw
+            if self.fly_state == DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.FORWARD:
+                yaw_desired = 0
+                forward_desired = self.forward_speed
+
+                # check the front range sensor value.
+                if range_sensor_values[0] < self.lower_distance_threshold:
+                    self.fly_state = DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.TURN
+                    # before turning pick a random left/right turn ( yaw ) values
+                    # and stop flying forward
+                    yaw_desired = random.choice([-1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 1])
+                    forward_desired = 0.0
+
+                self.yaw_velocity = yaw_desired
+
+            elif self.fly_state == DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.TURN:
+                # if we are turning... override the yaw_desired with the selected yaw_velocity when entering the TURN state
+                yaw_desired = self.yaw_velocity
+                if range_sensor_values[0] > self.upper_distance_threshold:
+                    self.fly_state = DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.FORWARD
+                    self.yaw_velocity = 0
+
+        rtn_data = PreFlyReturnData(
+            short_circuit=False,
+            forward_desired=forward_desired,
+            sideways_desired=sideways_desired,
+            yaw_desired=yaw_desired,
+            height_diff_desired=height_diff_desired
+        )
+        return rtn_data
+
+    def print_instructions_to_console(self):
+        print("\n")
+
+        if self.is_worker_bee:
+            print("====== Worker Drone =======\n\n")
+        else:
+            print("====== Controls =======\n\n")
+
+            print(" The Crazyflie can be controlled from your keyboard!\n")
+            print(" All controllable movement is in body coordinates\n")
+            print("- Use the up, back, right and left button to move in the horizontal plane\n")
+            print("- Use Q and E to rotate around yaw\n ")
+            print("- Use W and S to go up and down\n ")
+            print("- Use W and S to go up and down\n ")
+            print("- Use A for Autonomous Object Avoidance Mode \n ")
