@@ -328,7 +328,7 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
         self.emitter.send(msg)
 
     def print_instructions_to_console(self):
-        if self.crazyflie.is_queen_bee:
+        if self.is_queen_bee:
             print("====== Controls =======\n\n")
 
             print(" The Crazyflie can be controlled from your keyboard!\n")
@@ -337,7 +337,7 @@ class DroneBlocksWebotCrazyflieRobot(Robot):
             print("- Use Q and E to rotate around yaw\n ")
             print("- Use W and S to go up and down\n ")
             print("- Use W and S to go up and down\n ")
-        elif self.crazyflie.is_worker_bee:
+        elif self.is_worker_bee:
             print("====== Worker Drone =======\n\n")
 
 

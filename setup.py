@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='Crazyflie-Python-Webots-Utilities',
-    version='0.1.23',
+    version='0.1.25',
     packages=['droneblocks', 'droneblocks.webots', 'droneblocks.webots.robots', 'droneblocks.webots.controllers',
               'droneblocks.crazyflie'],
     package_dir={'': 'src'},
