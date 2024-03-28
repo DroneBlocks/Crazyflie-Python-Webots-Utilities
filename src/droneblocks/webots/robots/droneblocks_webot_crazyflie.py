@@ -408,3 +408,49 @@ class DroneBlocksWebotCrazyflieObstacleAvoidanceRobot(DroneBlocksWebotCrazyflieR
             print("- Use W and S to go up and down\n ")
             print("- Use W and S to go up and down\n ")
             print("- Use A for Autonomous Object Avoidance Mode \n ")
+
+
+class DroneBlocksWebotCrazyfliePathDisplayRobot(DroneBlocksWebotCrazyflieObstacleAvoidanceRobot):
+
+    def __init__(self):
+        super().__init__()
+        try:
+            self.display = self.getDevice("display")
+            print(print([attr for attr in dir(self.display) if not attr.startswith('__')]))
+            print(f"W,H: {self.display.getWidth()}, {self.display.getHeight()}")
+            self.display_width = self.display.getWidth()
+            self.display_height = self.display.getHeight()
+        except Exception as e:
+            self.display = None
+            self.display_width = None
+            self.display_height = None
+
+        self.GROUND_X = 3.0
+        self.GROUND_Y = 3.0
+        self.LIGHT_GRAY = 0x505050
+        self.RED = 0xBB2222
+        self.GREEN = 0x22BB11
+        self.BLUE = 0x2222BB
+        self.tracking_opacity = 0.5
+
+    def post_fly(self, forward_desired: float = 0.0,
+                sideways_desired: float = 0.0,
+                yaw_desired: int = 0,
+                height_diff_desired: float = 0) -> None:
+
+        x_global = self.gps.getValues()[0]*-1
+        y_global = self.gps.getValues()[1]
+        z_global = self.gps.getValues()[2]
+
+        if self.display:
+            self.display.setOpacity(self.tracking_opacity)
+            self.display.setColor(self.RED)
+            display_x = self.display_width - self.display_width * (x_global + self.GROUND_X / 2) / self.GROUND_X
+            display_y = self.display_height - self.display_height * (y_global + self.GROUND_Y / 2) / self.GROUND_Y
+            print(f"X/Y/Z: {x_global}, {y_global}, {z_global} | display_x, display_y: {display_x}, {display_y}")
+            print("#################")
+
+            self.display.fillOval(display_x, display_y, 4, 4)
+        else:
+            print(f"X/Y/Z: {x_global}, {y_global}, {z_global}")
+            print("#################")
