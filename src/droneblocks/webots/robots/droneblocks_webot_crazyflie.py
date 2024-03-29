@@ -381,8 +381,10 @@ class DroneBlocksWebotCrazyflieObstacleAvoidanceRobot(DroneBlocksWebotCrazyflieR
                 # if we are turning... override the yaw_desired with the selected yaw_velocity when entering the TURN state
                 yaw_desired = self.yaw_velocity
                 if range_sensor_values[0] > self.upper_distance_threshold:
-                    self.fly_state = DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.FORWARD
-                    self.yaw_velocity = 0
+                    if random.randint(0,10) <= 6:
+                        # n% of the time go foward immediately, but 100-n% keep rotating a little longer to cover more area
+                        self.fly_state = DroneBlocksWebotCrazyflieObstacleAvoidanceRobot.FlyingState.FORWARD
+                        self.yaw_velocity = 0
 
         rtn_data = PreFlyReturnData(
             short_circuit=False,
